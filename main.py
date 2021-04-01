@@ -1,6 +1,5 @@
 # main.py
 import os
-from keep_alive import keep_alive
 import sqlite3
 from discord.ext import commands
 import discord
@@ -198,7 +197,7 @@ async def listBirthdays(ctx):
     response_embed = generateEmbed("Birthday list", bday_list)
     await ctx.send(embed=response_embed)
 
-@bot.command(name='clear', help='Clears the birthday list')
+@bot.command(name='clear', help='[Mod Only] Clears the birthday list ')
 @commands.has_any_role('God King','Angel Knight')
 async def clearBirthdays(ctx):
     check= delete_db_all()
@@ -233,7 +232,7 @@ async def removeBirthday(ctx):
         response_embed = generateEmbed("Birthday removal", "You haven't set a birthday yet!")
         await ctx.send(embed=response_embed)
 
-@bot.command(name='force-announce', help='Force announce a birthday')
+@bot.command(name='force-announce', help='[Mod Only] Force announce a birthday')
 @commands.has_any_role('God King','Angel Knight')
 async def forceAnnounceBirthday(ctx, name):
     response_embed = generateEmbed("BIRTHDAY ALARM!", "It's "+name+"'s birthday today! Wish them a jolly good one")
@@ -242,6 +241,12 @@ async def forceAnnounceBirthday(ctx, name):
 
 @bot.command(name='update', help='Update your birthday')
 async def updateBirthday(ctx, day:int, month:int):
+
+    if (day>31) or (day<1) or (month<1) or (month>12):
+        invalid = generateEmbed("Birthday update failure", "That date is invalid! Write !update DD MM")
+        await ctx.send(embed=invalid)
+        return
+
     if (day / 10.0 < 1):
         day_str = "0" + str(day)
     else:
@@ -299,6 +304,7 @@ async def reactToEmbed(msg,emoji):
     await msg.add_reaction(emoji)
 
 @bot.command(name='startup', help='Starts the bot setup')
+@commands.has_any_role('God King','Angel Knight')
 async def startup(ctx):
     global startup_bool
     if startup_bool:
@@ -315,6 +321,20 @@ async def startup(ctx):
         type=discord.ActivityType.watching,
         name='you sleep'))
 
-# keep_alive()
+@bot.event
+async def on_guild_join(guild):
+    general = discord.utils.find(lambda x: x.name == '🙃-general',  guild.text_channels)
+    response_embed = generateEmbed("Birthday Bot is in town!","""
+                                   Hello @everyone, Birthday Bot here. I've heard some of yall will be having birthdays soon.
+                                   
+                                   😑 😢
+                                   
+                                   What a shame and here I was hoping that most of you wouldn't survive another day but here we are.
+                                   
+                                   If you want to try me out write !help to see which commands you have access to, they are prefixed with '!' 
+                                   
+                                   Any bugs that you wish to report or suggestions to add, plz contact the Mod Team :D""")
+    await general.send(embed=response_embed)
+
 startup_dbtable()
 bot.run(TOKEN)
