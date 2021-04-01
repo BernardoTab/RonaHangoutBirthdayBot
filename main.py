@@ -1,22 +1,104 @@
 # main.py
 import os
 from keep_alive import keep_alive
+import sqlite3
 from discord.ext import commands
 import discord
 from dotenv import load_dotenv
 from datetime import datetime
 
 import asyncio
+
+
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 last_day_checked=0
 bot = commands.Bot(command_prefix='!')
-birthdayDict = {}
+
 startup_bool = False
 
-async def birthdayCheckLoop(channel):
+db_connection = sqlite3.connect("birthdays.db")
+db_cursor = db_connection.cursor()
+
+
+def startup_dbtable():
+    command_startup_db = """CREATE TABLE IF NOT EXISTS
+    birthdays(id INTEGER PRIMARY KEY, bday TEXT)"""
+    try:
+        db_cursor.execute(command_startup_db)
+        return True
+    except:
+        print("Error in starting up database")
+        return False
+
+
+
+def set_db(id,birthday_text):
+    command="INSERT INTO birthdays (id, bday) VALUES (?, ?)"
+    try:
+        db_cursor.execute(command, (id, birthday_text))
+        db_connection.commit()
+        return True
+    except:
+        print("Error when setting birthday")
+        return False
+
+
+def fetch_db_specific(id):
+    try:
+        # check = db_cursor.execute("SELECT id, bday FROM birthdays")
+        db_cursor.execute("SELECT id, bday FROM birthdays WHERE id = ?", (id,))
+        check= db_cursor.fetchone()
+        return check
+    except:
+        print("Error when attempting to fetch specific birthday")
+        return "Exception"
+
+
+def fetch_db_all():
+    try:
+        db_cursor.execute("SELECT id, bday FROM birthdays")
+        check = db_cursor.fetchall()
+        return check
+    except:
+        print("Error when attempting to fetch all birthdays")
+        return None
+
+def delete_db_specific(id):
+    command="DELETE FROM birthdays WHERE id = ?"
+    try:
+        db_cursor.execute(command,(id,))
+        db_connection.commit()
+        return True
+    except:
+        print("Error when deleting specific birthday")
+        return False
+
+def delete_db_all():
+    command="DELETE FROM birthdays"
+    try:
+        db_cursor.execute(command)
+        db_connection.commit()
+        return True
+    except:
+        print("Error when clearing birthdays")
+        return False
+
+def update_db_specific(id,birthday_text):
+    command = "UPDATE birthdays SET bday = ? WHERE id = ?"
+    try:
+        db_cursor.execute(command, (birthday_text, id))
+        db_connection.commit()
+        return True
+    except:
+        print("Error when updating specific birthday")
+        return False
+
+
+
+async def birthdayCheckLoop(ctx):
     while True:
-        await checkDate(channel)
+        await checkDate(ctx)
         await asyncio.sleep(3600)
 
 
@@ -49,14 +131,27 @@ def birthdayConversion(day:int,month:int):
 
 
 
-@bot.command(name='set', help='Sets a birthday into the system')
+@bot.command(name='set', help='Sets a birthday into the system - DD MM')
 async def setBirthday(ctx, day:int, month:int):
 
-    if ctx.message.author.id in birthdayDict:
-        key_already_present = generateEmbed("Birthday set failure","You have already set your birthday "
+    if  (day>31) or (day<1) or (month<1) or (month>12):
+        invalid = generateEmbed("Birthday set failure", "That date is invalid! Write !set DD MM")
+        await ctx.send(embed=invalid)
+        return
+
+    birthday_check= fetch_db_specific(ctx.author.id)
+    if birthday_check== "Exception":
+        error = generateEmbed("Birthday set failure","Error in checking if your birthday is present "
                                             +ctx.message.author.name+"!")
+        await ctx.send(embed=error)
+        return
+
+    elif birthday_check is not None:
+        key_already_present = generateEmbed("Birthday set failure", "You have already set your birthday "
+                                           + ctx.message.author.name + "!")
         await ctx.send(embed=key_already_present)
         return
+
     if(day/10.0 <1):
         day_str="0"+str(day)
     else:
@@ -65,7 +160,13 @@ async def setBirthday(ctx, day:int, month:int):
         month_str="0"+str(month)
     else:
         month_str=str(month)
-    birthdayDict[ctx.message.author.id] = ""+day_str+" "+month_str
+
+    if set_db(ctx.author.id, ""+day_str+" "+month_str) is False:
+        error_setting = generateEmbed("Birthday set failure", "Error in setting your birthday "
+                                            + ctx.message.author.name + "!")
+        await ctx.send(embed=error_setting)
+        return
+
     response_message = ctx.message.author.name+"'s birthday was set to "+birthdayConversion(int(day_str),int(month_str))
     response_embed = generateEmbed("Birthday set!",response_message)
 
@@ -79,40 +180,86 @@ def generateEmbed(str_author, str_description):
 
 @bot.command(name='list', help='Shows a list of all the birthdays')
 async def listBirthdays(ctx):
-    list=""
-    for k, v in sorted(birthdayDict.items()):
-        values=v.split(' ')
-        user = await ctx.guild.fetch_member(k)
-        list+=user.name+" - "+birthdayConversion(int(values[0]),int(values[1]))+'\n'
+    bday_list=""
 
-    if(not bool(birthdayDict)):
-        list = "No birthdays have been set!"
+    db_bdays= fetch_db_all()
 
-    response_embed = generateEmbed("Birthday list", list)
+    if not db_bdays:
+        bday_list = "No birthdays have been set!"
+    else:
+        for k in sorted(db_bdays):
+            key = k[0]
+            val = k[1]
+            values = val.split(' ')
+
+            user = await ctx.guild.fetch_member(int(key))
+            bday_list += user.name + " - " + birthdayConversion(int(values[0]), int(values[1])) + '\n'
+
+    response_embed = generateEmbed("Birthday list", bday_list)
     await ctx.send(embed=response_embed)
 
 @bot.command(name='clear', help='Clears the birthday list')
+@commands.has_any_role('God King','Angel Knight')
 async def clearBirthdays(ctx):
-    birthdayDict.clear()
+    check= delete_db_all()
+    if check:
 
-    response_embed = generateEmbed("Clear", "Birthday list has been cleared!")
+        response_embed = generateEmbed("Clear", "Birthday list has been cleared!")
+    else:
+
+        response_embed = generateEmbed("Clear", "Error when attempting to clear the birthday list")
     await ctx.send(embed=response_embed)
+
+@bot.event
+async def on_command_error(ctx, error):
+    print("Error!")
+    if isinstance(error, commands.MissingAnyRole):
+        response_embed = generateEmbed("Command Error", "You cannot use this function, only mods can!")
+        await ctx.send(embed=response_embed)
 
 @bot.command(name='remove', help='Removes your birthday from the list')
 async def removeBirthday(ctx):
-    if ctx.message.author.id in birthdayDict:
-        del birthdayDict[ctx.message.author.id]
-        response_embed = generateEmbed("Birthday removal", ctx.message.author.name + "'s birthday was removed!")
-        await ctx.send(embed=response_embed)
+
+    if fetch_db_specific(ctx.author.id) is not None:
+        check=delete_db_specific(ctx.author.id)
+        if check:
+            response_embed = generateEmbed("Birthday removal", ctx.message.author.name + "'s birthday was removed!")
+            await ctx.send(embed=response_embed)
+        else:
+            response_embed = generateEmbed("Error when attempting to remove your birthday")
+            await ctx.send(embed=response_embed)
+
     else:
         response_embed = generateEmbed("Birthday removal", "You haven't set a birthday yet!")
         await ctx.send(embed=response_embed)
 
 @bot.command(name='force-announce', help='Force announce a birthday')
+@commands.has_any_role('God King','Angel Knight')
 async def forceAnnounceBirthday(ctx, name):
     response_embed = generateEmbed("BIRTHDAY ALARM!", "It's "+name+"'s birthday today! Wish them a jolly good one")
     msg = await ctx.send(content="@everyone",embed=response_embed)
     await birthdayReact(msg)
+
+@bot.command(name='update', help='Update your birthday')
+async def updateBirthday(ctx, day:int, month:int):
+    if (day / 10.0 < 1):
+        day_str = "0" + str(day)
+    else:
+        day_str = str(day)
+    if (month / 10.0 < 1):
+        month_str = "0" + str(month)
+    else:
+        month_str = str(month)
+
+    check=update_db_specific(ctx.author.id,day_str+" "+month_str)
+
+    if check:
+
+        response_embed = generateEmbed("Birthday Update", ctx.author.name + "'s birthday has been updated")
+    else:
+
+        response_embed = generateEmbed("Birthday Update", "Error when attempting to update the birthday")
+    await ctx.send(embed=response_embed)
 
 
 async def checkDate(ctx):
@@ -125,14 +272,22 @@ async def checkDate(ctx):
     if day == last_day_checked:
         return
 
-    for k, v in sorted(birthdayDict.items()):
-        values=v.split(' ')
+    db_bdays = fetch_db_all()
+
+    for k in sorted(db_bdays):
+        # for k, v in sorted(birthdayDict.items()):
+        key=k[0]
+        val=k[1]
+        values=val.split(' ')
+
         if day==values[0] and month==values[1]:
-            user= await ctx.guild.fetch_member(k)
+            user= await ctx.guild.fetch_member(key)
             response_embed = generateEmbed("BIRTHDAY ALARM!",
                                            "It's " + user.name + "'s birthday today! Wish them a jolly good one")
-            msg= await ctx.send(content="@everyone", embed=response_embed)
+            channel = discord.utils.get(ctx.guild.text_channels, name='🙃-general')
+            msg= await channel.send(content="@everyone", embed=response_embed)
             await birthdayReact(msg)
+
     last_day_checked=day
 
 async def birthdayReact(msg):
@@ -160,5 +315,6 @@ async def startup(ctx):
         type=discord.ActivityType.watching,
         name='you sleep'))
 
-keep_alive()
+# keep_alive()
+startup_dbtable()
 bot.run(TOKEN)
