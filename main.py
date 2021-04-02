@@ -21,7 +21,9 @@ db_cursor = db_connection.cursor()
 
 bday_file = discord.File("ratbday.png")
 
-
+#
+# statup_dbtable : Initializes the database file and gets a cursor for it
+#
 def startup_dbtable():
     command_startup_db = """CREATE TABLE IF NOT EXISTS
     birthdays(id INTEGER PRIMARY KEY, bday TEXT)"""
@@ -33,7 +35,9 @@ def startup_dbtable():
         return False
 
 
-
+#
+# set_db : Sets a birthday into the database
+#
 def set_db(id,birthday_text):
     command="INSERT INTO birthdays (id, bday) VALUES (?, ?)"
     try:
@@ -44,7 +48,9 @@ def set_db(id,birthday_text):
         print("Error when setting birthday")
         return False
 
-
+#
+# fetch_db_specific: Get a specific birthday entry from db based on the id
+#
 def fetch_db_specific(id):
     try:
         # check = db_cursor.execute("SELECT id, bday FROM birthdays")
@@ -55,7 +61,9 @@ def fetch_db_specific(id):
         print("Error when attempting to fetch specific birthday")
         return "Exception"
 
-
+#
+# fetch_db_all : Get every birthday in the db
+#
 def fetch_db_all():
     try:
         db_cursor.execute("SELECT id, bday FROM birthdays")
@@ -65,6 +73,9 @@ def fetch_db_all():
         print("Error when attempting to fetch all birthdays")
         return None
 
+#
+# delete_db_specific : Delete specific birthday entry from db
+#
 def delete_db_specific(id):
     command="DELETE FROM birthdays WHERE id = ?"
     try:
@@ -75,6 +86,9 @@ def delete_db_specific(id):
         print("Error when deleting specific birthday")
         return False
 
+#
+# delete_db_all : Delete every birthday from the db
+#
 def delete_db_all():
     command="DELETE FROM birthdays"
     try:
@@ -85,6 +99,9 @@ def delete_db_all():
         print("Error when clearing birthdays")
         return False
 
+#
+# update_db_specific : Update specific birthday entry on the db
+#
 def update_db_specific(id,birthday_text):
     command = "UPDATE birthdays SET bday = ? WHERE id = ?"
     try:
@@ -96,13 +113,17 @@ def update_db_specific(id,birthday_text):
         return False
 
 
-
+#
+# birthdayCheckLoop : Periodically (every 20 mins) checks if there is a birthday
+#
 async def birthdayCheckLoop(ctx):
     while True:
         await checkDate(ctx)
         await asyncio.sleep(1200)
 
-
+#
+# birthdayConversion : Converts a numerical day and month into a string with order suffix and month name
+#
 def birthdayConversion(day:int,month:int):
     day_lower_digit = day % 10
     suffixes={0:"th",
@@ -131,7 +152,9 @@ def birthdayConversion(day:int,month:int):
     return month_names[month]+" "+str(day)+suffixes[day_lower_digit]
 
 
-
+#
+# setBirthday [DD MM] : Command to set a birthday
+#
 @bot.command(name='set', help='Sets a birthday into the system - DD MM')
 async def setBirthday(ctx, day:int, month:int):
 
@@ -173,32 +196,56 @@ async def setBirthday(ctx, day:int, month:int):
 
     await ctx.send(embed=response_embed)
 
-
+#
+# generateEmbed : creates the standard embed to be sent as a message (so that the message looks nice)
+#
 def generateEmbed(str_author, str_description):
     response_embed = discord.Embed(description=str_description, color=0x674b9b)
     response_embed.set_author(name=str_author)
     return response_embed
 
+#
+# listBirthdays : Command to show a list of every birthday in the db
+#
 @bot.command(name='list', help='Shows a list of all the birthdays')
 async def listBirthdays(ctx):
     bday_list=""
-
+    order_list=[]
     db_bdays= fetch_db_all()
+    try:
+        if not db_bdays:
+            bday_list = "No birthdays have been set!"
+        else:
+            for k in sorted(db_bdays):
+                key = k[0]
+                val = k[1]
+                values = val.split(' ')
 
-    if not db_bdays:
-        bday_list = "No birthdays have been set!"
-    else:
-        for k in sorted(db_bdays):
-            key = k[0]
-            val = k[1]
-            values = val.split(' ')
+                user = await ctx.guild.fetch_member(int(key))
+                order_list.append([str(user.name),str(values[0]),str(values[1]),datetime.strptime(val, '%d %m')])
+                # bday_list += user.name + " - " + birthdayConversion(int(values[0]), int(values[1])) + '\n'
 
-            user = await ctx.guild.fetch_member(int(key))
-            bday_list += user.name + " - " + birthdayConversion(int(values[0]), int(values[1])) + '\n'
+            order_list.sort(key=takeDate)
+            for l in order_list:
+                bday_list += l[0] + " - " + birthdayConversion(int(l[1]), int(l[2])) + '\n'
+        response_embed = generateEmbed("Birthday list", bday_list)
+        await ctx.send(embed=response_embed)
+    except Exception as e:
+        print("Error in listing!")
+        if hasattr(e, 'message'):
+            print(e.message)
+        else:
+            print(e)
 
-    response_embed = generateEmbed("Birthday list", bday_list)
-    await ctx.send(embed=response_embed)
+#
+# takeDate : small sorting key function to order the birthday list by date
+#
+def takeDate(elem):
+    return elem[3]
 
+#
+# ClearBirthdays : Command to remove every birthday entry
+#
 @bot.command(name='clear', help='[Mod Only] Clears the birthday list ')
 @commands.has_any_role('God King','Angel Knight')
 async def clearBirthdays(ctx):
@@ -211,6 +258,9 @@ async def clearBirthdays(ctx):
         response_embed = generateEmbed("Clear", "Error when attempting to clear the birthday list")
     await ctx.send(embed=response_embed)
 
+#
+# on_command_error : Handler for errors and exceptions
+#
 @bot.event
 async def on_command_error(ctx, error):
     print("Error!")
@@ -218,6 +268,20 @@ async def on_command_error(ctx, error):
         response_embed = generateEmbed("Command Error", "You cannot use this function, only mods can!")
         await ctx.send(embed=response_embed)
 
+#
+# timeCheck : Command to show the bot server's local time
+#
+@bot.command(name='time', help='[MOD ONLY] Shows the current time and date in the bot server')
+@commands.has_any_role('God King','Angel Knight')
+async def timeCheck(ctx):
+    now = datetime.now()
+    print("The time in the bot server is = ", now)
+    response_embed = generateEmbed("Time Check", "The time in the bot server is = " + str(now))
+    await ctx.send(embed=response_embed)
+
+#
+# removeBirthday : Command to remove the user's birthday from the db
+#
 @bot.command(name='remove', help='Removes your birthday from the list')
 async def removeBirthday(ctx):
 
@@ -227,13 +291,16 @@ async def removeBirthday(ctx):
             response_embed = generateEmbed("Birthday removal", ctx.message.author.name + "'s birthday was removed!")
             await ctx.send(embed=response_embed)
         else:
-            response_embed = generateEmbed("Error when attempting to remove your birthday")
+            response_embed = generateEmbed("Birthday removal","Error when attempting to remove your birthday")
             await ctx.send(embed=response_embed)
 
     else:
         response_embed = generateEmbed("Birthday removal", "You haven't set a birthday yet!")
         await ctx.send(embed=response_embed)
 
+#
+# forceAnnounceBirthday : Test command to preview how having a birthday would look like
+#
 @bot.command(name='force-announce', help='[Mod Only] Force announce a birthday')
 @commands.has_any_role('God King','Angel Knight')
 async def forceAnnounceBirthday(ctx, name):
@@ -241,7 +308,9 @@ async def forceAnnounceBirthday(ctx, name):
     msg = await ctx.send(content="@everyone",embed=response_embed,file=bday_file)
     await birthdayReact(msg)
 
-
+#
+# UpdateBirthday : Command to update a birthday entry
+#
 @bot.command(name='update', help='Update your birthday')
 async def updateBirthday(ctx, day:int, month:int):
 
@@ -269,8 +338,17 @@ async def updateBirthday(ctx, day:int, month:int):
         response_embed = generateEmbed("Birthday Update", "Error when attempting to update the birthday")
     await ctx.send(embed=response_embed)
 
-
+#
+# CheckDate : Periodic function that checks the current date and time and, if it is 08:00 in the bot's time or
+#             10:00 in german time, then it will check if there is a birthday that matches the current date
+#
 async def checkDate(ctx):
+    time = datetime.now().time()
+    time_args = str(time).split(':')
+    if time_args[0] != "08":
+        print("It is "+time_args[0]+"h which is not birthday announcement time")
+        return
+
     date = datetime.date(datetime.now())
     date_args=str(date).split('-')
     month = date_args[1]
@@ -310,15 +388,23 @@ async def checkDate(ctx):
         else:
             print(e)
 
-
+#
+# birthdayReact : Small function that generates and applies birthday emojis to a message
+#
 async def birthdayReact(msg):
     await reactToEmbed(msg,'\U0001F389')
     await reactToEmbed(msg,'\U0001F38A')
     await reactToEmbed(msg,'\U00002728')
 
+#
+# reactToEmbed : Small function to apply these emojis to a message
+#
 async def reactToEmbed(msg,emoji):
     await msg.add_reaction(emoji)
 
+#
+# Startup : Command to start the periodic check
+#
 @bot.command(name='startup', help='Starts the bot setup')
 @commands.has_any_role('God King','Angel Knight')
 async def startup(ctx):
@@ -337,6 +423,9 @@ async def startup(ctx):
         type=discord.ActivityType.watching,
         name='you sleep'))
 
+#
+# on_guild_join : Intro message that bot sends when it is started
+#
 @bot.event
 async def on_guild_join(guild):
     general = discord.utils.find(lambda x: x.name == '🙃-general',  guild.text_channels)
