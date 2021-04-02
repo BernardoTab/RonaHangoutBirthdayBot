@@ -19,6 +19,8 @@ startup_bool = False
 db_connection = sqlite3.connect("birthdays.db")
 db_cursor = db_connection.cursor()
 
+bday_file = discord.File("ratbday.png")
+
 
 def startup_dbtable():
     command_startup_db = """CREATE TABLE IF NOT EXISTS
@@ -98,7 +100,7 @@ def update_db_specific(id,birthday_text):
 async def birthdayCheckLoop(ctx):
     while True:
         await checkDate(ctx)
-        await asyncio.sleep(3600)
+        await asyncio.sleep(1200)
 
 
 def birthdayConversion(day:int,month:int):
@@ -236,8 +238,9 @@ async def removeBirthday(ctx):
 @commands.has_any_role('God King','Angel Knight')
 async def forceAnnounceBirthday(ctx, name):
     response_embed = generateEmbed("BIRTHDAY ALARM!", "It's "+name+"'s birthday today! Wish them a jolly good one")
-    msg = await ctx.send(content="@everyone",embed=response_embed)
+    msg = await ctx.send(content="@everyone",embed=response_embed,file=bday_file)
     await birthdayReact(msg)
+
 
 @bot.command(name='update', help='Update your birthday')
 async def updateBirthday(ctx, day:int, month:int):
@@ -279,21 +282,34 @@ async def checkDate(ctx):
 
     db_bdays = fetch_db_all()
 
-    for k in sorted(db_bdays):
-        # for k, v in sorted(birthdayDict.items()):
-        key=k[0]
-        val=k[1]
-        values=val.split(' ')
+    try:
+        for k in sorted(db_bdays):
+            # for k, v in sorted(birthdayDict.items()):
+            key = k[0]
+            val = k[1]
+            values = val.split(' ')
 
-        if day==values[0] and month==values[1]:
-            user= await ctx.guild.fetch_member(key)
-            response_embed = generateEmbed("BIRTHDAY ALARM!",
-                                           "It's " + user.name + "'s birthday today! Wish them a jolly good one")
-            channel = discord.utils.get(ctx.guild.text_channels, name='🙃-general')
-            msg= await channel.send(content="@everyone", embed=response_embed)
-            await birthdayReact(msg)
+            if day == values[0] and month == values[1]:
+                user = await ctx.guild.fetch_member(int(key))
 
-    last_day_checked=day
+                print("success user get check")
+                response_embed = generateEmbed("BIRTHDAY ALARM!",
+                                               "It's " + str(user) + "'s birthday today! Wish them a jolly good one")
+                channel = discord.utils.get(ctx.guild.text_channels, name='🙃-general')
+
+                print("success channel check")
+                msg = await channel.send(content="@everyone", embed=response_embed,file=bday_file)
+                await birthdayReact(msg)
+
+        print("success birthday check")
+        last_day_checked = day
+    except Exception as e:
+        print("Error in regular birthday check!")
+        if hasattr(e, 'message'):
+            print(e.message)
+        else:
+            print(e)
+
 
 async def birthdayReact(msg):
     await reactToEmbed(msg,'\U0001F389')
